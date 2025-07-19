@@ -1,0 +1,927 @@
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+
+local Window = WindUI:CreateWindow({
+    Title = "Game Enhancements - Advanced",
+    Icon = "rbxassetid://129260712070622",
+    IconThemed = true,
+    Author = "izelstolen",
+    Folder = "GameEnhancements",
+    Size = UDim2.fromOffset(520, 500),
+    Transparent = true,
+    Theme = "Dark",
+    SideBarWidth = 180,
+    ScrollBarEnabled = true,
+})
+
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local LocalPlayer = Players.LocalPlayer
+
+-- Current Date/Time Info
+local CurrentDate = "2025-07-19"
+local CurrentTime = "20:00:54"
+local UserLogin = "izelstolen"
+
+-- Create tabs DIRECTLY on Window
+local VisualTab = Window:Tab({ 
+    Title = "Visual", 
+    Icon = "eye", 
+    Desc = "Visual enhancement features" 
+})
+
+local MovementTab = Window:Tab({ 
+    Title = "Movement", 
+    Icon = "zap", 
+    Desc = "Movement enhancement features" 
+})
+
+local ESPTab = Window:Tab({ 
+    Title = "ESP", 
+    Icon = "target", 
+    Desc = "Complete ESP system" 
+})
+
+local InfoTab = Window:Tab({ 
+    Title = "Info", 
+    Icon = "info", 
+    Desc = "System information and status" 
+})
+
+-- ESP Settings
+_G.ESPSettings = _G.ESPSettings or {
+    Enabled = false,
+    MaxDistance = 100000,
+    EnemyColor = Color3.fromRGB(255, 0, 0),
+    TeamColor = Color3.fromRGB(0, 255, 0),
+    DefaultColor = Color3.fromRGB(255, 255, 255),
+    FontSize = 14
+}
+
+-- ESP Objects Storage
+_G.ESPObjects = _G.ESPObjects or {}
+
+-- Loot ESP System
+_G.LootESPEnabled = _G.LootESPEnabled or false
+local lootFolder = workspace:WaitForChild("Loot")
+local ESPFolder = nil
+local ESPs = {}
+local lootESPConnections = {}
+
+local function createLootESP(item)
+    if not item:IsA("BasePart") and not item:IsA("Model") then return end
+
+    local part
+    if item:IsA("Model") then
+        part = item.PrimaryPart or item:FindFirstChildWhichIsA("BasePart")
+        if not part then return end
+    else
+        part = item
+    end
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "ESP"
+    billboard.Adornee = part
+    billboard.Size = UDim2.new(0, 100, 0, 50)
+    billboard.AlwaysOnTop = true
+    billboard.Parent = ESPFolder
+
+    local textLabel = Instance.new("TextLabel")
+    textLabel.Size = UDim2.new(1, 0, 1, 0)
+    textLabel.BackgroundTransparency = 1
+    textLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+    textLabel.TextStrokeColor3 = Color3.new(0,0,0)
+    textLabel.TextStrokeTransparency = 0
+    textLabel.Font = Enum.Font.SourceSansBold
+    textLabel.TextSize = 18
+    textLabel.Text = item.Name
+    textLabel.Parent = billboard
+
+    ESPs[item] = billboard
+end
+
+local function removeLootESP(item)
+    if ESPs[item] then
+        ESPs[item]:Destroy()
+        ESPs[item] = nil
+    end
+end
+
+local function clearAllLootESP()
+    for item, gui in pairs(ESPs) do
+        gui:Destroy()
+        ESPs[item] = nil
+    end
+end
+
+local function addAllLootESP()
+    for _, item in pairs(lootFolder:GetChildren()) do
+        createLootESP(item)
+    end
+end
+
+local function refreshLootESP()
+    clearAllLootESP()
+    addAllLootESP()
+end
+
+local function toggleLootESP(enabled)
+    _G.LootESPEnabled = enabled
+    
+    if enabled then
+        -- Create ESP folder
+        if ESPFolder then ESPFolder:Destroy() end
+        ESPFolder = Instance.new("Folder")
+        ESPFolder.Name = "LootESP"
+        ESPFolder.Parent = LocalPlayer:WaitForChild("PlayerGui")
+        
+        -- Initial ESP setup
+        refreshLootESP()
+        
+        -- Update ESP on loot spawn/despawn
+        lootESPConnections.childAdded = lootFolder.ChildAdded:Connect(function(item)
+            createLootESP(item)
+        end)
+        
+        lootESPConnections.childRemoved = lootFolder.ChildRemoved:Connect(function(item)
+            removeLootESP(item)
+        end)
+        
+        -- Refresh all ESPs every 15 seconds
+        lootESPConnections.refreshLoop = task.spawn(function()
+            while _G.LootESPEnabled do
+                wait(15)
+                if _G.LootESPEnabled then
+                    refreshLootESP()
+                end
+            end
+        end)
+    else
+        -- Disable loot ESP
+        clearAllLootESP()
+        
+        -- Disconnect all connections
+        for _, connection in pairs(lootESPConnections) do
+            if typeof(connection) == "RBXScriptConnection" then
+                connection:Disconnect()
+            elseif typeof(connection) == "thread" then
+                task.cancel(connection)
+            end
+        end
+        lootESPConnections = {}
+        
+        -- Remove ESP folder
+        if ESPFolder then
+            ESPFolder:Destroy()
+            ESPFolder = nil
+        end
+    end
+end
+
+-- Create tracer using Drawing API
+local function createTracer(targetPart, color)
+    if not Drawing then return nil end
+    
+    local line = Drawing.new("Line")
+    line.Visible = true
+    line.Color = color
+    line.Thickness = 1
+    line.Transparency = 0.8
+    
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        if not targetPart or not targetPart.Parent then
+            line:Remove()
+            connection:Disconnect()
+            return
+        end
+        
+        local camera = Workspace.CurrentCamera
+        if not camera then return end
+        
+        local targetPos, onScreen = camera:WorldToViewportPoint(targetPart.Position)
+        
+        if onScreen then
+            line.From = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+            line.To = Vector2.new(targetPos.X, targetPos.Y)
+            line.Visible = true
+        else
+            line.Visible = false
+        end
+    end)
+    
+    return {line, connection}
+end
+
+-- Create wallhack highlight
+local function createWallhack(character, color)
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "ESPHighlight"
+    highlight.Parent = character
+    highlight.FillColor = color
+    highlight.OutlineColor = color
+    highlight.FillTransparency = 0.7
+    highlight.OutlineTransparency = 0
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    return highlight
+end
+
+-- Create outline box
+local function createOutline(character, color)
+    local box = Instance.new("SelectionBox")
+    box.Name = "ESPBox"
+    box.Adornee = character
+    box.Color3 = color
+    box.LineThickness = 2
+    box.Transparency = 0.3
+    box.Parent = character
+    return box
+end
+
+-- Complete ESP Implementation for everyone EXCEPT yourself
+local function createCompleteESP(player)
+    -- Skip ESP for yourself
+    if player == LocalPlayer then return end
+    
+    local function setupESP()
+        local character = player.Character
+        if not character then return end
+        
+        local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+        local humanoid = character:FindFirstChild("Humanoid")
+        if not humanoidRootPart then return end
+        
+        -- Remove existing ESP
+        if _G.ESPObjects[player.Name] then
+            for _, obj in pairs(_G.ESPObjects[player.Name]) do
+                if obj and obj.Parent then
+                    obj:Destroy()
+                elseif obj and obj.Remove then
+                    obj:Remove()
+                elseif type(obj) == "table" then
+                    for _, tracerObj in pairs(obj) do
+                        if tracerObj and tracerObj.Parent then
+                            tracerObj:Destroy()
+                        elseif tracerObj and tracerObj.Remove then
+                            tracerObj:Remove()
+                        elseif tracerObj and tracerObj.Disconnect then
+                            tracerObj:Disconnect()
+                        end
+                    end
+                end
+            end
+        end
+        
+        _G.ESPObjects[player.Name] = {}
+        
+        -- Determine color based on player status
+        local color = _G.ESPSettings.DefaultColor
+        if player.Team and LocalPlayer.Team then
+            if player.Team == LocalPlayer.Team then
+                color = _G.ESPSettings.TeamColor
+            else
+                color = _G.ESPSettings.EnemyColor
+            end
+        end
+        
+        -- Create Billboard GUI with name and info
+        local billboard = Instance.new("BillboardGui")
+        billboard.Name = player.Name .. "_ESP"
+        billboard.Adornee = humanoidRootPart
+        billboard.Size = UDim2.new(0, 200, 0, 100)
+        billboard.StudsOffset = Vector3.new(0, 3, 0)
+        billboard.AlwaysOnTop = true
+        billboard.Parent = game.CoreGui
+        
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(1, 0, 1, 0)
+        frame.BackgroundTransparency = 1
+        frame.Parent = billboard
+        
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Name = "NameLabel"
+        nameLabel.Size = UDim2.new(1, 0, 0.4, 0)
+        nameLabel.Position = UDim2.new(0, 0, 0, 0)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Text = player.Name
+        nameLabel.TextColor3 = color
+        nameLabel.TextScaled = true
+        nameLabel.TextStrokeTransparency = 0
+        nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.Parent = frame
+        
+        local infoLabel = Instance.new("TextLabel")
+        infoLabel.Name = "InfoLabel"
+        infoLabel.Size = UDim2.new(1, 0, 0.6, 0)
+        infoLabel.Position = UDim2.new(0, 0, 0.4, 0)
+        infoLabel.BackgroundTransparency = 1
+        infoLabel.Text = ""
+        infoLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+        infoLabel.TextScaled = true
+        infoLabel.TextStrokeTransparency = 0
+        infoLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        infoLabel.Font = Enum.Font.Gotham
+        infoLabel.Parent = frame
+        
+        table.insert(_G.ESPObjects[player.Name], billboard)
+        
+        -- Create Tracer
+        local tracerObjects = createTracer(humanoidRootPart, color)
+        if tracerObjects then
+            table.insert(_G.ESPObjects[player.Name], tracerObjects)
+        end
+        
+        -- Create Wallhack Highlight
+        local highlight = createWallhack(character, color)
+        table.insert(_G.ESPObjects[player.Name], highlight)
+        
+        -- Create Outline Box
+        local outline = createOutline(character, color)
+        table.insert(_G.ESPObjects[player.Name], outline)
+        
+        -- Update function
+        local function updateESP()
+            if not character.Parent or not humanoidRootPart.Parent then
+                billboard:Destroy()
+                return
+            end
+            
+            local distance = 0
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                distance = math.floor((LocalPlayer.Character.HumanoidRootPart.Position - humanoidRootPart.Position).Magnitude)
+            end
+            
+            -- Distance check
+            if distance > _G.ESPSettings.MaxDistance then
+                billboard.Enabled = false
+                if highlight then highlight.Enabled = false end
+                if outline then outline.Transparency = 1 end
+                return
+            else
+                billboard.Enabled = true
+                if highlight then highlight.Enabled = true end
+                if outline then outline.Transparency = 0.3 end
+            end
+            
+            -- Update colors
+            local newColor = _G.ESPSettings.DefaultColor
+            if player.Team and LocalPlayer.Team then
+                if player.Team == LocalPlayer.Team then
+                    newColor = _G.ESPSettings.TeamColor
+                else
+                    newColor = _G.ESPSettings.EnemyColor
+                end
+            end
+            
+            nameLabel.TextColor3 = newColor
+            if highlight then
+                highlight.FillColor = newColor
+                highlight.OutlineColor = newColor
+            end
+            if outline then
+                outline.Color3 = newColor
+            end
+            
+            -- Update info
+            local info = {}
+            table.insert(info, "Distance: " .. distance .. "m")
+            
+            if humanoid then
+                local healthPercent = math.floor((humanoid.Health / humanoid.MaxHealth) * 100)
+                table.insert(info, "HP: " .. healthPercent .. "%")
+            end
+            if player.Team then
+                table.insert(info, "Team: " .. player.Team.Name)
+            end
+            
+            infoLabel.Text = table.concat(info, "\n")
+            
+            -- Update font size
+            nameLabel.TextSize = _G.ESPSettings.FontSize
+            infoLabel.TextSize = _G.ESPSettings.FontSize - 2
+        end
+        
+        -- Connect update function
+        local connection = RunService.Heartbeat:Connect(updateESP)
+        
+        -- Cleanup when character is removed
+        character.AncestryChanged:Connect(function()
+            if not character.Parent then
+                connection:Disconnect()
+                if _G.ESPObjects[player.Name] then
+                    for _, obj in pairs(_G.ESPObjects[player.Name]) do
+                        if obj and obj.Parent then
+                            obj:Destroy()
+                        elseif obj and obj.Remove then
+                            obj:Remove()
+                        elseif type(obj) == "table" then
+                            for _, tracerObj in pairs(obj) do
+                                if tracerObj and tracerObj.Parent then
+                                    tracerObj:Destroy()
+                                elseif tracerObj and tracerObj.Remove then
+                                    tracerObj:Remove()
+                                elseif tracerObj and tracerObj.Disconnect then
+                                    tracerObj:Disconnect()
+                                end
+                            end
+                        end
+                    end
+                    _G.ESPObjects[player.Name] = nil
+                end
+            end
+        end)
+    end
+    
+    if player.Character then
+        setupESP()
+    end
+    
+    player.CharacterAdded:Connect(setupESP)
+end
+
+local function toggleCompleteESP(enabled)
+    if enabled then
+        -- Enable ESP for ALL players EXCEPT yourself
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                createCompleteESP(player)
+            end
+        end
+        
+        -- Connect for new players
+        Players.PlayerAdded:Connect(function(player)
+            if _G.ESPSettings.Enabled and player ~= LocalPlayer then
+                createCompleteESP(player)
+            end
+        end)
+    else
+        -- Disable ESP for all players
+        for playerName, espObjects in pairs(_G.ESPObjects) do
+            for _, obj in pairs(espObjects) do
+                if obj and obj.Parent then
+                    obj:Destroy()
+                elseif obj and obj.Remove then
+                    obj:Remove()
+                elseif type(obj) == "table" then
+                    for _, tracerObj in pairs(obj) do
+                        if tracerObj and tracerObj.Parent then
+                            tracerObj:Destroy()
+                        elseif tracerObj and tracerObj.Remove then
+                            tracerObj:Remove()
+                        elseif tracerObj and tracerObj.Disconnect then
+                            tracerObj:Disconnect()
+                        end
+                    end
+                end
+            end
+        end
+        _G.ESPObjects = {}
+    end
+end
+
+-- FullBright Implementation
+if not _G.FullBrightExecuted then
+    _G.FullBrightExecuted = true
+    _G.FullBrightEnabled = false
+
+    local Lighting = game:GetService("Lighting")
+
+    _G.NormalLightingSettings = {
+        Brightness = Lighting.Brightness,
+        ClockTime = Lighting.ClockTime,
+        FogEnd = Lighting.FogEnd,
+        FogStart = Lighting.FogStart,
+        GlobalShadows = Lighting.GlobalShadows,
+        Ambient = Lighting.Ambient,
+        OutdoorAmbient = Lighting.OutdoorAmbient
+    }
+
+    local function applyFullBright()
+        Lighting.Brightness = 1
+        Lighting.ClockTime = 12
+        Lighting.FogEnd = 1e10
+        Lighting.FogStart = 0
+        Lighting.GlobalShadows = false
+        Lighting.Ambient = Color3.fromRGB(178, 178, 178)
+        Lighting.OutdoorAmbient = Color3.fromRGB(178, 178, 178)
+    end
+
+    local function restoreLighting()
+        local settings = _G.NormalLightingSettings
+        if settings then
+            Lighting.Brightness = settings.Brightness
+            Lighting.ClockTime = settings.ClockTime
+            Lighting.FogEnd = settings.FogEnd
+            Lighting.FogStart = settings.FogStart
+            Lighting.GlobalShadows = settings.GlobalShadows
+            Lighting.Ambient = settings.Ambient
+            Lighting.OutdoorAmbient = settings.OutdoorAmbient
+        end
+    end
+
+    local connection
+    local function updateLoop()
+        if connection then
+            connection:Disconnect()
+        end
+        connection = RunService.RenderStepped:Connect(function()
+            if _G.FullBrightEnabled then
+                applyFullBright()
+            end
+        end)
+    end
+
+    updateLoop()
+
+    _G.ApplyFullBright = applyFullBright
+    _G.RestoreLighting = restoreLighting
+    _G.UpdateLoop = updateLoop
+end
+
+-- Auto-Sprint Implementation
+_G.AutoSprintEnabled = _G.AutoSprintEnabled or true
+
+if not _G.SprintLoopStarted then
+    _G.SprintLoopStarted = true
+
+    RunService.RenderStepped:Connect(function()
+        if _G.AutoSprintEnabled then
+            local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+            local events = character:FindFirstChild("Events")
+            if events and events:FindFirstChild("WS") then
+                events.WS:FireServer("Sprinting")
+            end
+        end
+    end)
+end
+
+-- UI Elements Creation - DIRECTLY IN TABS
+
+-- Visual Tab Elements
+VisualTab:Paragraph({
+    Title = "FullBright Information",
+    Desc = "Makes everything brighter and removes shadows for better visibility in dark areas.",
+    Icon = "sun",
+    Color = "Blue"
+})
+
+local FullBrightToggle = VisualTab:Toggle({
+    Title = "FullBright",
+    Desc = "Toggle FullBright lighting on/off",
+    Value = _G.FullBrightEnabled,
+    Callback = function(state)
+        _G.FullBrightEnabled = state
+        
+        if state then
+            _G.ApplyFullBright()
+            WindUI:Notify({
+                Title = "FullBright",
+                Content = "FullBright enabled!",
+                Icon = "sun",
+                Duration = 3,
+            })
+        else
+            _G.RestoreLighting()
+            WindUI:Notify({
+                Title = "FullBright",
+                Content = "FullBright disabled!",
+                Icon = "moon",
+                Duration = 3,
+            })
+        end
+    end
+})
+
+VisualTab:Button({
+    Title = "Reset to Original",
+    Desc = "Restore original lighting settings",
+    Callback = function()
+        _G.FullBrightEnabled = false
+        FullBrightToggle:SetValue(false)
+        _G.RestoreLighting()
+        
+        WindUI:Notify({
+            Title = "Reset Complete",
+            Content = "Lighting restored to original settings!",
+            Icon = "check",
+            Duration = 3,
+        })
+    end
+})
+
+-- Movement Tab Elements
+MovementTab:Paragraph({
+    Title = "Auto-Sprint Information",
+    Desc = "Automatically keeps your character sprinting without needing to hold the sprint key continuously.",
+    Icon = "zap",
+    Color = "Green"
+})
+
+MovementTab:Toggle({
+    Title = "Auto-Sprint",
+    Desc = "Automatically sprint without holding the key",
+    Value = _G.AutoSprintEnabled,
+    Callback = function(state)
+        _G.AutoSprintEnabled = state
+        
+        WindUI:Notify({
+            Title = "Auto-Sprint",
+            Content = state and "Auto-Sprint enabled!" or "Auto-Sprint disabled!",
+            Icon = state and "zap" or "x",
+            Duration = 3,
+        })
+    end
+})
+
+-- ESP Tab Elements
+ESPTab:Paragraph({
+    Title = "Complete ESP System",
+    Desc = "ESP for items, loot, and players with tracers, outlines, and wallhacks.",
+    Icon = "target",
+    Color = "Red"
+})
+
+-- LOOT ESP - FIRST BUTTON
+ESPTab:Toggle({
+    Title = "Loot ESP",
+    Desc = "Show ESP for all items in the Loot folder",
+    Value = _G.LootESPEnabled,
+    Callback = function(state)
+        toggleLootESP(state)
+        
+        local lootCount = #lootFolder:GetChildren()
+        WindUI:Notify({
+            Title = "Loot ESP",
+            Content = state and ("Loot ESP enabled!\n• Items detected: " .. lootCount .. "\n• Auto-refresh every 15s ✅\n• Golden text with outline ✅") or "Loot ESP disabled!",
+            Icon = state and "package" or "package-x",
+            Duration = 4,
+        })
+    end
+})
+
+ESPTab:Toggle({
+    Title = "Complete ESP (Others Only)",
+    Desc = "Enable ALL ESP features for OTHER PLAYERS: Names, Tracers, Outlines, Wallhacks",
+    Value = _G.ESPSettings.Enabled,
+    Callback = function(state)
+        _G.ESPSettings.Enabled = state
+        toggleCompleteESP(state)
+        
+        local otherPlayerCount = #Players:GetPlayers() - 1
+        WindUI:Notify({
+            Title = "Complete ESP",
+            Content = state and ("Complete ESP enabled for " .. otherPlayerCount .. " other players!\n• Names & Info ✅\n• Tracers ✅\n• Outlines ✅\n• Wallhacks ✅\n• You are excluded ✅") or "Complete ESP disabled for all players!",
+            Icon = state and "eye" or "eye-off",
+            Duration = 5,
+        })
+    end
+})
+
+ESPTab:Paragraph({
+    Title = "ℹ️ Self Exclusion",
+    Desc = "You will NOT see ESP on yourself - no boxes, tracers, or highlights on your own character for clean gameplay.",
+    Icon = "user-x",
+    Color = "Blue"
+})
+
+ESPTab:Slider({
+    Title = "Max Distance",
+    Desc = "Maximum distance to show ESP (studs)",
+    Value = {
+        Min = 1000,
+        Max = 100000,
+        Default = _G.ESPSettings.MaxDistance,
+    },
+    Callback = function(value)
+        _G.ESPSettings.MaxDistance = value
+        
+        WindUI:Notify({
+            Title = "Distance Updated",
+            Content = "ESP distance set to " .. value .. " studs",
+            Icon = "ruler",
+            Duration = 3,
+        })
+    end
+})
+
+ESPTab:Slider({
+    Title = "Font Size",
+    Desc = "Size of ESP text",
+    Value = {
+        Min = 8,
+        Max = 24,
+        Default = _G.ESPSettings.FontSize,
+    },
+    Callback = function(value)
+        _G.ESPSettings.FontSize = value
+    end
+})
+
+ESPTab:Colorpicker({
+    Title = "Enemy Color",
+    Desc = "Color for enemy players",
+    Default = _G.ESPSettings.EnemyColor,
+    Callback = function(color)
+        _G.ESPSettings.EnemyColor = color
+    end
+})
+
+ESPTab:Colorpicker({
+    Title = "Team Color",
+    Desc = "Color for team members",
+    Default = _G.ESPSettings.TeamColor,
+    Callback = function(color)
+        _G.ESPSettings.TeamColor = color
+    end
+})
+
+ESPTab:Colorpicker({
+    Title = "Default Color",
+    Desc = "Default color for other players",
+    Default = _G.ESPSettings.DefaultColor,
+    Callback = function(color)
+        _G.ESPSettings.DefaultColor = color
+    end
+})
+
+ESPTab:Button({
+    Title = "Refresh All ESP",
+    Desc = "Refresh both loot and player ESP",
+    Callback = function()
+        local refreshCount = 0
+        
+        -- Refresh loot ESP
+        if _G.LootESPEnabled then
+            refreshLootESP()
+            refreshCount = refreshCount + #lootFolder:GetChildren()
+        end
+        
+        -- Refresh player ESP
+        if _G.ESPSettings.Enabled then
+            toggleCompleteESP(false)
+            task.wait(0.1)
+            toggleCompleteESP(true)
+            refreshCount = refreshCount + (#Players:GetPlayers() - 1)
+        end
+        
+        WindUI:Notify({
+            Title = "ESP Refreshed",
+            Content = "All ESP systems refreshed!\n• Items refreshed ✅\n• Players refreshed ✅\n• Total elements: " .. refreshCount,
+            Icon = "refresh-cw",
+            Duration = 4,
+        })
+    end
+})
+
+ESPTab:Button({
+    Title = "Clear All ESP",
+    Desc = "Remove all ESP elements",
+    Callback = function()
+        toggleCompleteESP(false)
+        _G.ESPSettings.Enabled = false
+        
+        toggleLootESP(false)
+        
+        WindUI:Notify({
+            Title = "ESP Cleared",
+            Content = "All ESP features have been disabled and removed!\n• Loot ESP cleared ✅\n• Player ESP cleared ✅",
+            Icon = "trash-2",
+            Duration = 3,
+        })
+    end
+})
+
+-- Info Tab Elements
+InfoTab:Paragraph({
+    Title = "System Information",
+    Desc = "Current system status and user information",
+    Icon = "monitor",
+    Color = "Blue"
+})
+
+InfoTab:Paragraph({
+    Title = "User Information",
+    Desc = "Login: " .. UserLogin .. "\nRoblox User: " .. LocalPlayer.Name .. "\nUser ID: " .. LocalPlayer.UserId .. "\nAccount Age: " .. LocalPlayer.AccountAge .. " days",
+    Icon = "user",
+    Color = "Green"
+})
+
+InfoTab:Paragraph({
+    Title = "Session Information",
+    Desc = "Script Loaded: " .. CurrentDate .. " " .. CurrentTime .. " UTC\nGame: " .. game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name .. "\nPlace ID: " .. game.PlaceId,
+    Icon = "clock",
+    Color = "Orange"
+})
+
+InfoTab:Paragraph({
+    Title = "System Features",
+    Desc = "• Loot ESP System\n• Advanced Player ESP\n• FullBright Visual Enhancement\n• Auto-Sprint Movement\n• Names & Health Display\n• Distance Information\n• Screen Tracers & Outlines\n• Wallhack Highlights\n• Team/Enemy Color Coding\n• Self Exclusion ESP\n• 100K Stud Range",
+    Icon = "target",
+    Color = "Red"
+})
+
+InfoTab:Button({
+    Title = "System Status",
+    Desc = "Check all system statuses",
+    Callback = function()
+        local activeESP = 0
+        for _ in pairs(_G.ESPObjects) do
+            activeESP = activeESP + 1
+        end
+        
+        local activeLootESP = 0
+        for _ in pairs(ESPs) do
+            activeLootESP = activeLootESP + 1
+        end
+        
+        local totalPlayers = #Players:GetPlayers()
+        local otherPlayers = totalPlayers - 1
+        local totalLoot = #lootFolder:GetChildren()
+        
+        local status = "System Status Report:\n\n" ..
+                      "• FullBright: " .. (_G.FullBrightEnabled and "✅ Enabled" or "❌ Disabled") .. "\n" ..
+                      "• Auto-Sprint: " .. (_G.AutoSprintEnabled and "✅ Enabled" or "❌ Disabled") .. "\n" ..
+                      "• Loot ESP: " .. (_G.LootESPEnabled and "✅ Enabled" or "❌ Disabled") .. "\n" ..
+                      "• Loot Items: " .. activeLootESP .. "/" .. totalLoot .. " items\n" ..
+                      "• Player ESP: " .. (_G.ESPSettings.Enabled and "✅ Enabled" or "❌ Disabled") .. "\n" ..
+                      "• ESP Coverage: " .. activeESP .. "/" .. otherPlayers .. " other players\n" ..
+                      "• ESP Distance: " .. _G.ESPSettings.MaxDistance .. " studs\n" ..
+                      "• Self Exclusion: ✅ Active\n\n" ..
+                      "Session: " .. UserLogin .. " @ " .. CurrentDate .. " " .. CurrentTime .. " UTC"
+        
+        WindUI:Notify({
+            Title = "System Status",
+            Content = status,
+            Icon = "list",
+            Duration = 8,
+        })
+    end
+})
+
+InfoTab:Button({
+    Title = "Player & Loot List",
+    Desc = "Show all players with ESP status and loot count",
+    Callback = function()
+        local playerList = "Players in Server (" .. #Players:GetPlayers() .. "):\n\n"
+        
+        for i, player in pairs(Players:GetPlayers()) do
+            if player == LocalPlayer then
+                local team = player.Team and (" [" .. player.Team.Name .. "]") or " [No Team]"
+                playerList = playerList .. i .. ". " .. player.Name .. " (YOU)" .. team .. " 🚫 No ESP\n"
+            else
+                local team = player.Team and (" [" .. player.Team.Name .. "]") or " [No Team]"
+                local espStatus = _G.ESPSettings.Enabled and " ✅" or " ❌"
+                playerList = playerList .. i .. ". " .. player.Name .. team .. espStatus .. "\n"
+            end
+        end
+        
+        playerList = playerList .. "\nLoot Items (" .. #lootFolder:GetChildren() .. "):\n"
+        playerList = playerList .. "• Loot ESP: " .. (_G.LootESPEnabled and "✅ Enabled" or "❌ Disabled") .. "\n"
+        playerList = playerList .. "• Auto-refresh: Every 15 seconds"
+        
+        WindUI:Notify({
+            Title = "Player & Loot Status",
+            Content = playerList,
+            Icon = "list",
+            Duration = 10,
+        })
+    end
+})
+
+-- Window close handler
+Window:OnClose(function()
+    -- Clean up ESP
+    toggleCompleteESP(false)
+    
+    -- Clean up loot ESP
+    toggleLootESP(false)
+    
+    -- Restore lighting if needed
+    if _G.FullBrightEnabled then
+        _G.RestoreLighting()
+    end
+    
+    print("Game Enhancements UI closed by " .. UserLogin .. " (" .. LocalPlayer.Name .. ") at " .. os.date("%Y-%m-%d %H:%M:%S"))
+end)
+
+-- Welcome message
+WindUI:Notify({
+    Title = "Welcome, " .. UserLogin .. "!",
+    Content = "Game Enhancements loaded!\nSession: " .. CurrentDate .. " " .. CurrentTime .. " UTC\nUser: " .. LocalPlayer.Name .. "\nSystems Ready ✅",
+    Icon = "check-circle",
+    Duration = 6,
+})
+
+-- Additional startup notification
+task.wait(2)
+local totalPlayers = #Players:GetPlayers()
+local otherPlayers = totalPlayers - 1
+local totalLoot = #lootFolder:GetChildren()
+WindUI:Notify({
+    Title = "All Systems Operational",
+    Content = "• Visual Enhancements ✅\n• Movement Enhancements ✅\n• Loot ESP System ✅\n• Player ESP System ✅\n• Players: " .. otherPlayers .. " detected\n• Loot Items: " .. totalLoot .. " detected",
+    Icon = "zap",
+    Duration = 5,
+})
