@@ -1,0 +1,760 @@
+-- AC Bypass Stealth System (No Detection)
+local bypassLoaded = false
+
+-- Function to load AC bypass
+local function loadACBypass()
+    pcall(function()
+        loadstring(game:HttpGet('https://raw.githubusercontent.com/C0RP0RATE/Oblivious/refs/heads/main/Adonis_AntiCheat_Bypass_V2.lua'))()
+        bypassLoaded = true
+        print("AC Bypass loaded silently")
+    end)
+end
+
+-- Initial bypass load
+loadACBypass()
+
+-- Silent reload every 25 seconds (no detection)
+spawn(function()
+    while true do
+        wait(25)
+        loadACBypass()
+    end
+end)
+
+-- Load WindUI
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+
+-- Globals
+_G.HeadSize = 60
+_G.HitboxEnabled = false
+_G.AutoBlacksmith = false
+
+-- Speed Settings
+local SpoofEnabled = false
+local SpoofSpeed = 16
+local ActualSpeed = 16
+local LoopEnabled = false
+
+-- Instant Prompt Settings
+local InstantPromptEnabled = false
+local promptConnections = {}
+
+-- Get Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local speaker = Players.LocalPlayer
+
+-- Speed spoof variables
+local setspeed
+local index_hook
+local newindex_hook
+local hooksInitialized = false
+
+-- Loop connection
+local speedLoopConnection
+
+-- Store the slider reference
+local walkSpeedSlider
+
+-- Utility function to check if value is a number
+local function isNumber(value)
+    return type(tonumber(value)) == "number"
+end
+
+-- Function to set actual walkspeed
+local function setWalkSpeed(speed)
+    if not isNumber(speed) then return end
+    
+    if speaker.Character and speaker.Character:FindFirstChildOfClass('Humanoid') then
+        speaker.Character:FindFirstChildOfClass('Humanoid').WalkSpeed = speed
+        ActualSpeed = speed
+    end
+end
+
+-- Function to start speed loop
+local function startSpeedLoop()
+    if speedLoopConnection then
+        speedLoopConnection:Disconnect()
+    end
+    
+    speedLoopConnection = RunService.Heartbeat:Connect(function()
+        if speaker.Character and speaker.Character:FindFirstChildOfClass('Humanoid') then
+            local humanoid = speaker.Character:FindFirstChildOfClass('Humanoid')
+            if humanoid.WalkSpeed ~= ActualSpeed then
+                humanoid.WalkSpeed = ActualSpeed
+            end
+        end
+    end)
+    
+    LoopEnabled = true
+end
+
+-- Function to stop speed loop
+local function stopSpeedLoop()
+    if speedLoopConnection then
+        speedLoopConnection:Disconnect()
+        speedLoopConnection = nil
+    end
+    
+    LoopEnabled = false
+    
+    -- Reset to normal speed when loop is disabled
+    if speaker.Character and speaker.Character:FindFirstChildOfClass('Humanoid') then
+        speaker.Character:FindFirstChildOfClass('Humanoid').WalkSpeed = 16
+        ActualSpeed = 16
+        -- Update slider to reflect the reset
+        if walkSpeedSlider then
+            walkSpeedSlider:SetValue(16)
+        end
+    end
+end
+
+-- Create Window
+local Window = WindUI:CreateWindow({
+    Title = "NillaBlurp",
+    Icon = "target",
+    Author = "",
+    Folder = "NillaBlurp",
+    Size = UDim2.fromOffset(580, 460),
+    Transparent = true,
+    Theme = "Dark",
+    User = {
+        Enabled = true,
+        Anonymous = false
+    },
+    SideBarWidth = 200,
+    ScrollBarEnabled = true,
+})
+
+-- Create Tabs
+local HitboxTab = Window:Tab({ Title = "Hitbox Settings", Icon = "crosshair" })
+local BlacksmithTab = Window:Tab({ Title = "Auto Blacksmith", Icon = "hammer" })
+local SpeedTab = Window:Tab({ Title = "Speed", Icon = "gauge" })
+local NoClipTab = Window:Tab({ Title = "NoClip", Icon = "feather" })
+local GhostTab = Window:Tab({ Title = "Ghost Kill", Icon = "ghost" })
+local InstantPromptTab = Window:Tab({ Title = "Instant Prompt", Icon = "bolt" })
+
+-- === INSTANT PROMPT TAB (MUST BE DEFINED BEFORE USE) ===
+
+-- Instant Prompt Functions
+local function enableInstantPrompt()
+    -- Clear existing connections first
+    for _, conn in pairs(promptConnections) do
+        if typeof(conn) == "RBXScriptConnection" then
+            conn:Disconnect()
+        end
+    end
+    promptConnections = {}
+    
+    -- Handle existing prompts
+    for _, prom in next, workspace:GetDescendants() do
+        if prom:IsA("ProximityPrompt") then
+            local conn = prom.PromptButtonHoldBegan:Connect(function()
+                if prom.HoldDuration > 0 then
+                    fireproximityprompt(prom, 0)
+                end
+            end)
+            table.insert(promptConnections, conn)
+        end
+    end
+
+    -- Handle new prompts added later
+    local conn = workspace.DescendantAdded:Connect(function(class)
+        if class:IsA("ProximityPrompt") and InstantPromptEnabled then
+            local subConn = class.PromptButtonHoldBegan:Connect(function()
+                if class.HoldDuration > 0 then
+                    fireproximityprompt(class, 0)
+                end
+            end)
+            table.insert(promptConnections, subConn)
+        end
+    end)
+    table.insert(promptConnections, conn)
+end
+
+local function disableInstantPrompt()
+    for _, conn in pairs(promptConnections) do
+        if typeof(conn) == "RBXScriptConnection" then
+            conn:Disconnect()
+        end
+    end
+    promptConnections = {}
+end
+
+-- UI Toggle for Instant Prompt
+InstantPromptTab:Toggle({
+    Title = "Enable Instant Prompt",
+    Desc = "Automatically triggers prompts without holding",
+    Value = InstantPromptEnabled,
+    Callback = function(value)
+        InstantPromptEnabled = value
+        if value then
+            enableInstantPrompt()
+            print("Instant Prompt enabled")
+        else
+            disableInstantPrompt()
+            print("Instant Prompt disabled")
+        end
+    end
+})
+
+-- Info Paragraph for Instant Prompt
+InstantPromptTab:Paragraph({
+    Title = "How It Works",
+    Desc = "• Instantly fires any proximity prompt as soon as you interact with it\n• Works on chests, doors, tools, and more\n• No need to hold down keys anymore\n• Toggle on/off as needed",
+    Image = "zap"
+})
+
+-- Status Info
+InstantPromptTab:Paragraph({
+    Title = "Instructions",
+    Desc = "1. Toggle the feature on using the switch above\n2. Walk up to any proximity prompt (chest, door, etc.)\n3. Press the interaction key - it will fire instantly\n4. Toggle off when you don't want instant prompts",
+    Image = "info"
+})
+
+-- === HITBOX TAB ===
+
+-- Reset Hitboxes Function
+local function resetHitboxes()
+    for _, v in next, game:GetService('Players'):GetPlayers() do
+        if v.Name ~= game.Players.LocalPlayer.Name then
+            pcall(function()
+                if v.Character and v.Character:FindFirstChild("HumanoidRootPart") then
+                    local part = v.Character.HumanoidRootPart
+                    part.Size = Vector3.new(2, 2, 1)
+                    part.Transparency = 1
+                    part.BrickColor = BrickColor.new("Medium stone grey")
+                    part.Material = "Plastic"
+                    part.CanCollide = false
+                end
+            end)
+        end
+    end
+end
+
+-- Hitbox Toggle
+local ToggleHitbox = HitboxTab:Toggle({
+    Title = "Enable Hitbox",
+    Desc = "Toggle hitbox expansion on/off",
+    Value = _G.HitboxEnabled,
+    Callback = function(state)
+        _G.HitboxEnabled = state
+        if not state then resetHitboxes() end
+        print("Hitbox " .. (state and "enabled" or "disabled"))
+    end
+})
+
+-- Hitbox Size Slider
+HitboxTab:Slider({
+    Title = "Hitbox Size",
+    Desc = "Adjust the size of player hitboxes",
+    Value = {
+        Min = 1,
+        Max = 100,
+        Default = _G.HeadSize,
+    },
+    Callback = function(value)
+        _G.HeadSize = value
+        print("Hitbox size set to: " .. value)
+    end
+})
+
+-- Reset Hitboxes Button
+HitboxTab:Button({
+    Title = "Reset Hitboxes",
+    Desc = "Reset all player hitboxes to normal",
+    Callback = function()
+        _G.HitboxEnabled = false
+        ToggleHitbox:SetValue(false)
+        resetHitboxes()
+        print("All hitboxes reset to normal")
+    end
+})
+
+-- Hitbox Help Paragraph
+HitboxTab:Paragraph({
+    Title = "How to Use",
+    Desc = "1. Use the toggle to enable/disable hitbox expansion\n2. Adjust the slider to change hitbox size\n3. Click reset to return hitboxes to normal",
+    Image = "info",
+})
+
+-- Hitbox Runtime Logic
+game:GetService('RunService').RenderStepped:Connect(function()
+    if _G.HitboxEnabled then
+        for _, v in next, game:GetService('Players'):GetPlayers() do
+            if v.Name ~= game.Players.LocalPlayer.Name then
+                pcall(function()
+                    if v.Character and v.Character:FindFirstChild("HumanoidRootPart") then
+                        local part = v.Character.HumanoidRootPart
+                        part.Size = Vector3.new(_G.HeadSize, _G.HeadSize, _G.HeadSize)
+                        part.Transparency = 0.7
+                        part.BrickColor = BrickColor.new("Really blue")
+                        part.Material = "Neon"
+                        part.CanCollide = false
+                    end
+                end)
+            end
+        end
+    end
+end)
+
+-- === BLACKSMITH TAB ===
+
+-- Auto Blacksmith Toggle
+BlacksmithTab:Toggle({
+    Title = "Enable Auto Blacksmith",
+    Desc = "Automatically activates blacksmith proximity prompts",
+    Value = _G.AutoBlacksmith,
+    Callback = function(state)
+        _G.AutoBlacksmith = state
+        print("Auto Blacksmith " .. (state and "enabled" or "disabled"))
+    end
+})
+
+-- Auto Blacksmith Info
+BlacksmithTab:Paragraph({
+    Title = "Instructions",
+    Desc = "This will auto-fire all proximity prompts related to the blacksmith\nwhen within 500 studs and match the conditions.\n\nDisables when GUI is closed.",
+    Image = "info",
+})
+
+-- Blacksmith Auto Loop
+coroutine.wrap(function()
+    while true do
+        wait(0.7)
+        if _G.AutoBlacksmith then
+            for _, v in pairs(game.Workspace:GetDescendants()) do
+                if v:IsA("ProximityPrompt") and v.Parent:IsA("Part") then
+                    if v.Parent.Size == Vector3.new(1, 1, 1) and v.Name ~= "ConscriptionProx" then
+                        local localChar = game.Players.LocalPlayer.Character
+                        if localChar and localChar:FindFirstChild("HumanoidRootPart") then
+                            local dist = (v.Parent.Position - localChar.HumanoidRootPart.Position).Magnitude
+                            if dist < 500 then
+                                pcall(function()
+                                    fireproximityprompt(v)
+                                end)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)()
+
+-- === SPEED TAB ===
+
+-- Speed Warning Note
+SpeedTab:Paragraph({
+    Title = "⚠️ Important Warning",
+    Desc = "Enable spoof speed first or you will get kicked!\nAlways use speed spoofing with high walkspeed values.",
+    Image = "alert-triangle",
+    Color = "Red"
+})
+
+-- Speed Spoof Functions
+local function initializeHooks()
+    if hooksInitialized then return end
+    if not hookmetamethod then return end
+    
+    local char = speaker.Character
+    if not char then return end
+    
+    index_hook = hookmetamethod(game, "__index", function(self, key)
+        if not checkcaller() and typeof(self) == "Instance" and self:IsA("Humanoid") and 
+           (key == "WalkSpeed" or key == "walkSpeed") and self:IsDescendantOf(speaker.Character) then
+            if SpoofEnabled then
+                return setspeed or SpoofSpeed
+            end
+        end
+        return index_hook(self, key)
+    end)
+    
+    newindex_hook = hookmetamethod(game, "__newindex", function(self, key, value)
+        if not checkcaller() and typeof(self) == "Instance" and self:IsA("Humanoid") and 
+           (key == "WalkSpeed" or key == "walkSpeed") and self:IsDescendantOf(speaker.Character) then
+            setspeed = tonumber(value)
+        end
+        return newindex_hook(self, key, value)
+    end)
+    
+    hooksInitialized = true
+end
+
+-- Speed Spoof Toggle
+SpeedTab:Toggle({
+    Title = "Speed Spoof",
+    Value = SpoofEnabled,
+    Callback = function(state)
+        SpoofEnabled = state
+        if state then
+            initializeHooks()
+        else
+            setspeed = nil
+        end
+    end
+})
+
+-- Spoof Speed Slider
+SpeedTab:Slider({
+    Title = "Spoof Speed",
+    Value = {
+        Min = 1,
+        Max = 100,
+        Default = SpoofSpeed,
+    },
+    Callback = function(value)
+        SpoofSpeed = value
+    end
+})
+
+-- Speed Loop Toggle
+SpeedTab:Toggle({
+    Title = "Speed Loop",
+    Value = LoopEnabled,
+    Callback = function(state)
+        if state then
+            startSpeedLoop()
+        else
+            stopSpeedLoop()
+        end
+    end
+})
+
+-- WalkSpeed Slider (store reference)
+walkSpeedSlider = SpeedTab:Slider({
+    Title = "WalkSpeed",
+    Value = {
+        Min = 1,
+        Max = 25,
+        Default = ActualSpeed,
+    },
+    Callback = function(value)
+        setWalkSpeed(value)
+    end
+})
+
+-- Only Normal Speed Preset Button (as requested)
+SpeedTab:Button({
+    Title = "Normal (16)",
+    Callback = function()
+        setWalkSpeed(16)
+        walkSpeedSlider:SetValue(16)
+    end
+})
+
+-- === NOCLIP TAB ===
+
+local noclipActive = false
+local noclipConnection = nil
+
+-- Toggle Noclip function
+local function toggleNoClip(state)
+    noclipActive = state
+
+    if state then
+        noclipConnection = game:GetService("RunService").Stepped:Connect(function()
+            local char = game.Players.LocalPlayer.Character
+            if char then
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") and part.CanCollide then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end)
+        print("NoClip Enabled")
+    else
+        if noclipConnection then
+            noclipConnection:Disconnect()
+            noclipConnection = nil
+        end
+        -- Restore collision (optional)
+        local char = game.Players.LocalPlayer.Character
+        if char then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                end
+            end
+        end
+        print("NoClip Disabled")
+    end
+end
+
+-- Toggle UI Element
+NoClipTab:Toggle({
+    Title = "Enable NoClip",
+    Desc = "Walk through walls and objects",
+    Value = false,
+    Callback = function(value)
+        toggleNoClip(value)
+    end
+})
+
+-- Info paragraph
+NoClipTab:Paragraph({
+    Title = "How to Use",
+    Desc = "Toggle NoClip to walk through objects.\nTurn off before interacting with anything physical.\nMake sure to enable this *after* spawning in.",
+    Image = "info"
+})
+
+-- === GHOST KILL TAB ===
+
+-- Ghost Kill Warning Note
+GhostTab:Paragraph({
+    Title = "⚠️ Important Note",
+    Desc = "Must be near target!\nThis feature only works when you are close to another player.",
+    Image = "users",
+    Color = "Orange"
+})
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+local originalCameraSubject = camera.CameraSubject
+
+local teleportYOffset = 10
+local tweenSpeed = 5
+local vanishEnabled = false
+local running = false
+local noclip = false
+local highlight = nil
+local loopConnection = nil
+local attackConnection = nil
+local targetPlayer = nil
+
+local allowedWeapons = {
+    ["Wood Knife"] = true,
+    ["Stone Knife"] = true,
+    ["Spear"] = true,
+    ["Club"] = true,
+    ["GreatClub"] = true
+}
+
+local function setCharacterVisibility(visible)
+    local char = player.Character
+    if not char then return end
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") or part:IsA("Decal") then
+            part.Transparency = visible and 0 or 1
+        elseif part:IsA("Accessory") and part:FindFirstChild("Handle") then
+            part.Handle.Transparency = visible and 0 or 1
+        end
+    end
+end
+
+local function tweenToPosition(part, targetPos, duration)
+    local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+    local goal = { CFrame = CFrame.new(targetPos) }
+    local tween = TweenService:Create(part, tweenInfo, goal)
+    tween:Play()
+    return tween
+end
+
+local function teleportLoop()
+    if not targetPlayer or not targetPlayer.Character then return end
+    local humanoid = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+
+    camera.CameraSubject = humanoid
+
+    if highlight then highlight:Destroy() end
+    highlight = Instance.new("Highlight")
+    highlight.FillColor = Color3.fromRGB(255, 0, 0)
+    highlight.OutlineColor = Color3.fromRGB(255, 0, 0)
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.Adornee = player.Character
+    highlight.Parent = player.Character
+
+    if loopConnection then loopConnection:Disconnect() end
+
+    loopConnection = RunService.Heartbeat:Connect(function()
+        if not running then return end
+
+        local ghostChar = player.Character
+        local targetChar = targetPlayer.Character
+        if not (ghostChar and targetChar) then return end
+
+        local ghostHRP = ghostChar:FindFirstChild("HumanoidRootPart")
+        local targetHRP = targetChar:FindFirstChild("HumanoidRootPart")
+        if not (ghostHRP and targetHRP) then return end
+
+        local velocity = targetHRP.Velocity
+        local predictedPos = targetHRP.Position + velocity * 0.1
+        local targetPos = predictedPos + Vector3.new(0, -teleportYOffset, 0)
+
+        ghostHRP.CFrame = CFrame.new(targetPos)
+    end)
+
+    humanoid.Died:Connect(function()
+        if not player.Character then return end
+
+        local ghostHRP = player.Character:FindFirstChild("HumanoidRootPart")
+        local targetHRP = targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if ghostHRP and targetHRP then
+            local deadPos = targetHRP.Position
+            ghostHRP.Anchored = true
+            local tween = tweenToPosition(ghostHRP, deadPos, 0.4)
+            tween.Completed:Connect(function()
+                ghostHRP.Anchored = false
+                running = false
+                if highlight then highlight:Destroy() end
+                camera.CameraSubject = player.Character:FindFirstChildOfClass("Humanoid") or originalCameraSubject
+                print("Tween to dead body complete.")
+            end)
+        else
+            running = false
+            if highlight then highlight:Destroy() end
+            camera.CameraSubject = player.Character:FindFirstChildOfClass("Humanoid") or originalCameraSubject
+        end
+    end)
+end
+
+local function startInstantAttack()
+    if attackConnection then attackConnection:Disconnect() end
+    local attackRemote = ReplicatedStorage:FindFirstChild("AttackRemote")
+    if not attackRemote then
+        warn("AttackRemote not found!")
+        return
+    end
+
+    attackConnection = RunService.Heartbeat:Connect(function()
+        if not running then return end
+        setCharacterVisibility(false)
+        task.wait(0.05)
+        for _ = 1, 10 do
+            attackRemote:FireServer()
+        end
+        task.wait(0.05)
+        setCharacterVisibility(true)
+        task.wait(0.1)
+    end)
+end
+
+local function vanishWhenTargetDamaged()
+    if not targetPlayer or not targetPlayer.Character then return end
+    local humanoid = targetPlayer.Character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+
+    local cooldown = false
+
+    targetPlayer.Character.DescendantAdded:Connect(function(descendant)
+        if not running or not vanishEnabled or cooldown then return end
+        if descendant:IsA("Animation") or descendant:IsA("Tool") then
+            local tool = targetPlayer.Character:FindFirstChildOfClass("Tool")
+            if tool and allowedWeapons[tool.Name] then
+                cooldown = true
+                player.Character:PivotTo(player.Character:GetPivot() + Vector3.new(0, -teleportYOffset, 0))
+                task.wait(0.35)
+                task.delay(0.7, function() cooldown = false end)
+            end
+        end
+    end)
+end
+
+local function toggleGhostKill(enabled)
+    if enabled then
+        local nearestPlayer = nil
+        local nearestDistance = math.huge
+        local myHRP = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+        if not myHRP then return end
+
+        for _, plr in pairs(Players:GetPlayers()) do
+            if plr ~= player and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                local dist = (myHRP.Position - plr.Character.HumanoidRootPart.Position).Magnitude
+                if dist < nearestDistance then
+                    nearestDistance = dist
+                    nearestPlayer = plr
+                end
+            end
+        end
+
+        if not nearestPlayer then
+            warn("No valid target nearby")
+            return
+        end
+
+        targetPlayer = nearestPlayer
+        running = true
+        noclip = true
+        teleportLoop()
+        startInstantAttack()
+        vanishWhenTargetDamaged()
+        print("Ghost kill started on", targetPlayer.Name)
+    else
+        running = false
+        noclip = false
+
+        if loopConnection then loopConnection:Disconnect() loopConnection = nil end
+        if attackConnection then attackConnection:Disconnect() attackConnection = nil end
+        if highlight then highlight:Destroy() highlight = nil end
+
+        -- ✅ Teleport to target's last known position on disable
+        local ghostChar = player.Character
+        local ghostHRP = ghostChar and ghostChar:FindFirstChild("HumanoidRootPart")
+        local targetHRP = targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+
+        if ghostHRP and targetHRP then
+            ghostHRP.Anchored = true
+            ghostHRP.CFrame = targetHRP.CFrame
+            task.wait(0.4)
+            ghostHRP.Anchored = false
+            print("Teleported to target's last known position")
+        end
+
+        camera.CameraSubject = player.Character:FindFirstChildOfClass("Humanoid") or originalCameraSubject
+        print("Ghost kill stopped")
+    end
+end
+
+-- UI Toggle & Slider
+GhostTab:Toggle({
+    Title = "Ghost Kill",
+    Desc = "Enable ghost kill teleport + auto attack",
+    Value = false,
+    Callback = function(value)
+        vanishEnabled = value
+        toggleGhostKill(value)
+    end
+})
+
+GhostTab:Slider({
+    Title = "Y Offset (Ghost Kill)",
+    Desc = "How far below target to teleport",
+    Value = {
+        Min = 1,
+        Max = 20,
+        Default = teleportYOffset,
+    },
+    Callback = function(val)
+        teleportYOffset = val
+    end
+})
+
+-- === GUI CLOSE BEHAVIOR ===
+
+Window:OnClose(function()
+    print("Multi Tool Hub GUI closed by " .. speaker.Name)
+    
+    -- Cleanup instant prompts
+    disableInstantPrompt()
+    
+    -- Cleanup hitbox
+    _G.HitboxEnabled = false
+    _G.AutoBlacksmith = false
+    resetHitboxes()
+    -- Cleanup speed
+    stopSpeedLoop()
+    SpoofEnabled = false
+    -- Cleanup noclip
+    toggleNoClip(false)
+    -- Cleanup ghost kill
+    toggleGhostKill(false)
+end)
+
+print("Multi Tool Hub with Advanced AC Bypass loaded for user: " .. speaker.Name .. " at 2025-07-19 12:09:00")
+print("✅ All features ready for NillaBlurp!")
